@@ -1,0 +1,155 @@
+triggers pour emprunts :
+
+CREATE DEFINER = CURRENT_USER TRIGGER `2024_INFO2_PENAVAIRE_MILLIAUD`.`Emprunts_max_atteint` 
+BEFORE INSERT ON `Emprunts` FOR EACH ROW
+BEGIN
+	DECLARE condition_satisfaite INT;
+    
+    -- Vérifier la condition
+    SELECT COUNT(Abonné_idAbonné) INTO condition_satisfaite 
+    FROM Emprunts WHERE Abonné_idAbonné = NEW.Abonné_idAbonné;
+    
+    -- Si la condition n'est pas satisfaite, annuler l'insertion
+    IF condition_satisfaite >= 5 THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = "Cet abonné a atteint le nombre maximum d'emprunts";
+	END IF;
+END
+
+CREATE DEFINER = CURRENT_USER TRIGGER `2024_INFO2_PENAVAIRE_MILLIAUD`.`Emprunts_auto_date` BEFORE INSERT ON `Emprunts` FOR EACH ROW
+BEGIN
+	DECLARE cond VARCHAR(45);
+	-- Remplissage automatique de la date d'emprunt
+	SET NEW.date_emprunt = NOW();
+    
+    -- permet de savoir si le contenu est physique où numérique
+    SELECT p/n INTO cond FROM Contenu WHERE idContenu = NEW.Contenu_idContenu;
+    
+    -- on teste la condition est on remplie la date de retour théorique en fonction
+    if cond = 'p' THEN
+		SET NEW.date_retour_theo = DATE_ADD(NOW(), INTERVAL 2 WEEK);
+	ELSE
+		SET NEW.date_retour_theo = DATE_ADD(NOW(), INTERVAL 1 WEEK);
+	END IF;
+END
+
+CREATE DEFINER = CURRENT_USER TRIGGER `2024_INFO2_PENAVAIRE_MILLIAUD`.`Emprunts_disponible` BEFORE INSERT ON `Emprunts` FOR EACH ROW
+BEGIN
+	DECLARE condition_satisfaite VARCHAR(45);
+
+    -- Vérifier la condition dans Contenu
+    SELECT statut INTO condition_satisfaite FROM Contenu 
+    WHERE Contenu.idContenu = NEW.Contenu_idContenu;
+    
+    -- Si la condition n'est pas satisfaite, annuler l'insertion
+    IF condition_satisfaite = 'indisponible' THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Le contenu est indisponible';
+    END IF;
+END
+
+
+
+
+
+
+
+trigges pour demandes :
+
+CREATE DEFINER = CURRENT_USER TRIGGER `2024_INFO2_PENAVAIRE_MILLIAUD`.`Demandes_disponible` 
+BEFORE INSERT ON `Demandes` FOR EACH ROW
+BEGIN
+	DECLARE condition_satisfaite VARCHAR(45);
+
+    -- Vérifier la condition dans Contenu
+    SELECT statut INTO condition_satisfaite FROM Contenu 
+    WHERE Contenu.idContenu = NEW.Contenu_idContenu;
+    
+    -- Si la condition n'est pas satisfaite, annuler l'insertion
+    IF condition_satisfaite = 'disponible' THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Le contenu est disponible';
+    END IF;
+END
+
+CREATE DEFINER = CURRENT_USER TRIGGER `2024_INFO2_PENAVAIRE_MILLIAUD`.`Demandes_max_atteint` 
+BEFORE INSERT ON `Demandes` FOR EACH ROW
+BEGIN
+	DECLARE condition_satisfaite INT;
+    
+    -- Vérifier la condition
+    SELECT COUNT(Abonné_idAbonné) INTO condition_satisfaite 
+    FROM Demandes WHERE Abonné_idAbonné = NEW.Abonné_idAbonné;
+    
+    -- Si la condition n'est pas satisfaite, annuler l'insertion
+    IF condition_satisfaite >= 3 THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Cet abonné a atteint le nombre maximum de demandes';
+    END IF;
+END
+
+
+CREATE DEFINER = CURRENT_USER TRIGGER `2024_INFO2_PENAVAIRE_MILLIAUD`.`Demandes_date_auto` BEFORE INSERT ON `Demandes` FOR EACH ROW
+BEGIN
+	SET NEW.date_demande = NOW();
+END
+
+
+
+
+
+
+
+trigger pour abonné :
+
+CREATE DEFINER = CURRENT_USER TRIGGER `2024_INFO2_PENAVAIRE_MILLIAUD`.`Abonné_auto_date` 
+BEFORE INSERT ON `Abonné` FOR EACH ROW
+BEGIN
+	SET NEW.date_adhésion = NOW();
+END
+
+
+
+
+
+
+
+
+
+procédure :
+
+CREATE PROCEDURE `gestion_contenu_en_attente` ()
+BEGIN
+	DECLARE dateRetourReelle DATE;
+	DECLARE dateDemande DATE;
+    DECLARE dateLimite DATE;
+    
+    SELECT date_retour_reelle INTO dateRetourReelle FROM Emprunts WHERE Emprunts.Contenu_idContenu = Demandes.Contenu_idContenu;
+    SELECT date_demande INTO dateDemande FROM Demandes WHERE Emprunts.Contenu_idContenu = Demandes.Contenu_idContenu;
+    
+    SET dateLimite = DATE_ADD(dateRetourReelle, INTERVAL 1 WEEK);
+    
+    IF NOW() >= dateLimite THEN
+		DELETE FROM Demandes WHERE Emprunts.Contenu_idContenu = Demandes.Contenu_idContenu;
+	END IF;
+	
+END
+
+CREATE PROCEDURE `gestion_emprunt` (IN idAbo INT, IN titreContenu VARCHAR(45), IN typeContenu VARCHAR(45), IN formeContenu VARCHAR(45))
+BEGIN
+	DECLARE statutContenu VARCHAR(45);
+    DECLARE id_contenu INT;
+    
+    SELECT MIN(idContenu) INTO id_contenu FROM Contenu WHERE statut = 'disponible' AND titre = titireContenu AND type_contenu = typeContenu AND p/n = formeContenu;
+    
+    SELECT statut INTO statutContenu FROM Contenu WHERE idContenu = id_contenu;
+    
+    IF statut = 'disponible' THEN
+		INSERT INTO Emprunts VALUES (idAbo, id_contenu, NULL, NULL, NULL);
+	ELSE 
+		INSERT INTO Demandes VALUES (idAbo, id_contenu, NULL);
+	END IF;
+    
+END
+
+
